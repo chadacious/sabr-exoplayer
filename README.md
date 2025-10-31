@@ -57,6 +57,37 @@ dependencies {
 1. Install the APK or run the `:sample` app from Android Studio.
 2. The sample app loads `sabr/sample_sabr_manifest.mpd` and plays it via ExoPlayer using the library.
 
+## Optional: Request/Response Dumping
+
+If you need to inspect SABR traffic, you can pass a `SabrSegmentDumper` when constructing the
+`DefaultSabrSegmentFetcher`. By default, no dumps occur. Example:
+
+```kotlin
+val dumper = SabrSegmentDumper(
+    baseUrl = HttpUrl.get("http://your-dump-server/dump"),
+    callFactory = okHttpClient,
+    logger = logger,
+)
+
+val segmentFetcher = DefaultSabrSegmentFetcher(
+    callFactory = okHttpClient,
+    logger = logger,
+    segmentDumper = dumper,
+)
+
+val sabrFactory = SabrDataSourceFactory(
+    delegateFactory = httpFactory,
+    sessionManager = sessionManager,
+    sessionProvider = { session },
+    segmentFetcher = segmentFetcher,
+    logger = logger,
+)
+```
+
+The dumper mirrors requests and responses to `baseUrl` via HTTP POST. Provide your own endpoint if
+important for diagnostics. Omit `segmentDumper` (the default) to run without dumps in production.
+For a concrete Python example, see `docs/sabr_segment_dumper.md`.
+
 ## Directory Structure
 
 ```
