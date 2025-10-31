@@ -75,4 +75,4 @@ sabr-exoplayer/
 
 ## License
 
-Add an appropriate license file (e.g., Apache 2.0, MIT) here before publishing.
+This project is licensed under the [MIT License](LICENSE).
