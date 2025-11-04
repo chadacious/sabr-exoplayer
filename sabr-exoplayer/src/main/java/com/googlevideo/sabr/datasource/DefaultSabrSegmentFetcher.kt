@@ -32,6 +32,8 @@ import video_streaming.ClientAbrStateOuterClass.ClientAbrState
 import video_streaming.StreamerContextOuterClass
 import video_streaming.VideoPlaybackAbrRequestOuterClass.VideoPlaybackAbrRequest
 import video_streaming.MediaHeaderOuterClass.MediaHeader
+import video_streaming.ReloadPlayerResponse.ReloadPlaybackContext
+import org.json.JSONObject
 
 @UnstableApi
 class DefaultSabrSegmentFetcher(
@@ -40,6 +42,7 @@ class DefaultSabrSegmentFetcher(
     private val responseHandlingMode: UmpResponseHandling = UmpResponseHandling.STREAM_UNTIL_TARGET,
     private val logger: SabrLogger = SabrLogger.NO_OP,
     private val segmentDumper: SabrSegmentDumper? = null,
+    private val onReloadRequest: ((ReloadPlaybackContext, SabrRequestMetadata) -> Unit)? = null,
 ) : SabrSegmentFetcher {
 
     override fun fetch(
@@ -102,6 +105,9 @@ class DefaultSabrSegmentFetcher(
         sessionManager.requestMetadataManager.put(httpUrl.toString(), resolvedMetadata)
 
         val abrRequest = buildAbrRequest(sessionManager, format, resolvedMetadata)
+        val abrRequestJson = abrRequest.toDebugJson()
+        resolvedMetadata.abrRequestJson = abrRequestJson
+        sessionManager.recordAbrRequestJson(abrRequestJson)
         logger.d(TAG) {
             val requestedRange = resolvedMetadata.requestedStartRange?.toString() ?: "unset"
             val requestedTime = resolvedMetadata.requestedStartTimeMs?.toString() ?: "unset"
@@ -143,17 +149,19 @@ class DefaultSabrSegmentFetcher(
             }
 
             val originalStreamInfo = resolvedMetadata.streamInfo
-            val resultData = umpResult?.data
-            val bestFallbackData = umpResult?.fallbackData ?: fallbackData
-            val bestFallbackHeader = umpResult?.fallbackMediaHeader ?: fallbackHeader
-            val data = resultData
-            val hasFinalData = data != null && umpResult?.done == true
+            val result = umpResult
+            val data = result?.data
+            val bestFallbackData = result?.fallbackData ?: fallbackData
+            val bestFallbackHeader = result?.fallbackMediaHeader ?: fallbackHeader
+            val hasFinalData = result?.let { data != null && it.done } ?: false
             val hasFallbackOnly = !hasFinalData && bestFallbackData != null
             if (hasFallbackOnly && originalStreamInfo != null) {
                 resolvedMetadata.streamInfo = originalStreamInfo.copy(mediaHeader = null)
             }
 
             sessionManager.applyStreamInfo(resolvedMetadata)
+
+            maybeHandleReloadRequest(sessionManager, resolvedMetadata)
 
             if (hasFallbackOnly) {
                 resolvedMetadata.streamInfo = originalStreamInfo
@@ -176,6 +184,7 @@ class DefaultSabrSegmentFetcher(
                 val processed = processSegmentData(sessionManager, resolvedMetadata, data)
                 logger.d(TAG) { "SABR request completed (done=true) for key=${request.key} bytes=${processed.size}" }
                 segmentDumper?.dump(request, resolvedMetadata, processed)
+                lastReloadContextSignature = null
                 return SabrSegmentResult(processed, resolvedMetadata)
             }
 
@@ -224,6 +233,22 @@ class DefaultSabrSegmentFetcher(
             segmentDumper?.dump(request, resolvedMetadata, processed)
             return SabrSegmentResult(processed, resolvedMetadata)
         }
+    }
+
+    private fun maybeHandleReloadRequest(
+        sessionManager: SabrSessionManager,
+        metadata: SabrRequestMetadata,
+    ) {
+        val reloadContext = metadata.streamInfo?.reloadPlaybackContext ?: return
+        val bytes = reloadContext.toByteArray()
+        if (bytes.isEmpty()) return
+        val signature = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        if (signature.isEmpty() || signature == lastReloadContextSignature) return
+        lastReloadContextSignature = signature
+        val reloadContextJson = reloadContextToJson(reloadContext)
+        metadata.reloadPlaybackContextJson = reloadContextJson
+        sessionManager.recordReloadPlaybackContextJson(reloadContextJson)
+        onReloadRequest?.invoke(reloadContext, metadata)
     }
 
     private fun maybeServeCachedInitSlice(
@@ -530,9 +555,23 @@ class DefaultSabrSegmentFetcher(
         private const val STREAM_READ_CHUNK_SIZE = 64 * 1024L
         private val DEFAULT_HTTP_CLIENT: OkHttpClient = OkHttpClient()
         private const val TAG = "DefaultSabrFetcher"
-
-        private fun formatIdToString(formatId: Common.FormatId): String = formatIdToJson(formatId)
     }
+
+    private var lastReloadContextSignature: String? = null
+
+    private fun reloadContextToJson(context: ReloadPlaybackContext): String? {
+        if (!context.hasReloadPlaybackParams()) return null
+        val params = context.reloadPlaybackParams
+        if (!params.hasToken()) return null
+        val paramsJson = JSONObject().apply {
+            put("token", params.token)
+        }
+        return JSONObject().apply {
+            put("reloadPlaybackParams", paramsJson)
+        }.toString()
+    }
+
+    private fun formatIdToString(formatId: Common.FormatId): String = formatIdToJson(formatId)
 }
 
 internal fun VideoPlaybackAbrRequest.toDebugJson(): String {

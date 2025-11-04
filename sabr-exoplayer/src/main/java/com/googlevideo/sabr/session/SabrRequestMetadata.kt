@@ -33,6 +33,8 @@ data class SabrRequestMetadata(
     // Set when the previous attempt received fallback media, so the follow-up mirrors the TS client
     // behaviour of omitting SABR contexts to encourage the server to honour buffered ranges.
     var suppressSabrContexts: Boolean = false,
+    var abrRequestJson: String? = null,
+    var reloadPlaybackContextJson: String? = null,
 ) {
 
     data class ByteRange(

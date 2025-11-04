@@ -4,7 +4,7 @@
     <application
         android:allowBackup="true"
         android:label="SABR Sample"
-        android:theme="@style/Theme.Material3.DayNight.NoActionBar">
+        android:theme="@style/Theme.Sabr">
         <activity
             android:name="com.googlevideo.sabr.sample.SamplePlaybackActivity"
             android:exported="true"

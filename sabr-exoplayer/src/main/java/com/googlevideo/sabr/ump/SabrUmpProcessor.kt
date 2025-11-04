@@ -15,6 +15,7 @@ import video_streaming.SabrRedirectOuterClass.SabrRedirect
 import video_streaming.SnackbarMessageOuterClass.SnackbarMessage
 import video_streaming.StreamProtectionStatusOuterClass.StreamProtectionStatus
 import video_streaming.UmpPartId.UMPPartId
+import org.json.JSONObject
 import kotlin.math.abs
 
 internal class SabrUmpProcessor(
@@ -198,10 +199,19 @@ internal class SabrUmpProcessor(
                     segmentBytes,
                 )
                 val range = requestMetadata.byteRange
-                val start = range.start.toInt()
-                val endExclusive = (range.end + 1).toInt().coerceAtMost(segmentBytes.size)
-                val sliced = segmentBytes.copyOfRange(start, endExclusive)
-                return UmpProcessingResult(sliced, done = true)
+                val startLong = range.start.coerceAtLeast(0L)
+                val endLong = if (range.end >= range.start && range.end >= 0L) {
+                    (range.end + 1L).coerceAtMost(segmentBytes.size.toLong())
+                } else {
+                    segmentBytes.size.toLong()
+                }
+                if (startLong < segmentBytes.size.toLong() && endLong > startLong) {
+                    val start = startLong.toInt()
+                    val endExclusive = endLong.toInt()
+                    val sliced = segmentBytes.copyOfRange(start, endExclusive)
+                    return UmpProcessingResult(sliced, done = true)
+                }
+                return UmpProcessingResult(segmentBytes, done = true)
             }
 
             return UmpProcessingResult(segmentBytes, done = true)
@@ -230,6 +240,15 @@ internal class SabrUmpProcessor(
     private fun handleSabrError(part: UmpPart): UmpProcessingResult {
         val error = decode(part) { SabrError.parseFrom(it) }
         requestMetadata.error = SabrRequestMetadata.SabrErrorInfo(error)
+        val errorType = error?.type ?: "unknown"
+        val errorCode = error?.code ?: -1
+        val playbackContextJson = requestMetadata.reloadPlaybackContextJson
+            ?: requestMetadata.streamInfo?.reloadPlaybackContext?.let(::reloadContextToJson)
+        val abrRequestJson = requestMetadata.abrRequestJson
+        android.util.Log.e(
+            TAG,
+            "SABR_ERROR type=$errorType code=$errorCode playbackContext=${playbackContextJson ?: "null"} abrRequest=${abrRequestJson ?: "null"}"
+        )
         return UmpProcessingResult(done = true)
     }
 
@@ -286,6 +305,18 @@ internal class SabrUmpProcessor(
     private fun updateStreamInfo(transform: (SabrRequestMetadata.StreamInfo) -> SabrRequestMetadata.StreamInfo) {
         val current = requestMetadata.streamInfo ?: SabrRequestMetadata.StreamInfo()
         requestMetadata.streamInfo = transform(current)
+    }
+
+    private fun reloadContextToJson(context: ReloadPlaybackContext): String? {
+        if (!context.hasReloadPlaybackParams()) return null
+        val params = context.reloadPlaybackParams
+        if (!params.hasToken()) return null
+        val paramsJson = JSONObject().apply {
+            put("token", params.token)
+        }
+        return JSONObject().apply {
+            put("reloadPlaybackParams", paramsJson)
+        }.toString()
     }
 
     internal data class Segment(

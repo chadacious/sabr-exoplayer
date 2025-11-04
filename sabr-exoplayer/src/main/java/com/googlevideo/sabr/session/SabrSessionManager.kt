@@ -8,6 +8,7 @@ import video_streaming.BufferedRangeOuterClass.BufferedRange
 import video_streaming.MediaHeaderOuterClass.MediaHeader
 import video_streaming.NextRequestPolicyOuterClass.NextRequestPolicy
 import video_streaming.PlaybackCookieOuterClass.PlaybackCookie
+import video_streaming.ReloadPlayerResponse.ReloadPlaybackContext
 import video_streaming.SabrContextUpdateOuterClass.SabrContextUpdate
 import video_streaming.SabrContextUpdateOuterClass.SabrContextUpdate.SabrContextWritePolicy
 import video_streaming.StreamerContextOuterClass
@@ -30,6 +31,7 @@ class SabrSessionManager(
     private val requestCounter = AtomicInteger(0)
     private var lastRequestMetadata: SabrRequestMetadata? = null
     private val formatsByItag = mutableMapOf<Int, SabrFormat>()
+    private val formatsByKey = mutableMapOf<String, SabrFormat>()
     private var lastManifestHash: Int? = null
     private val initializedFormats = mutableMapOf<String, InitializedFormat>()
     private val initSegmentStore = mutableMapOf<String, ByteArray>()
@@ -38,6 +40,8 @@ class SabrSessionManager(
     private var bandwidthEstimateBitsPerSec: Long = 0L
     private var activeVideoFormat: SabrFormat? = null
     private var activeAudioFormat: SabrFormat? = null
+    private var lastAbrRequestJson: String? = null
+    private var lastReloadPlaybackContextJson: String? = null
 
     var sabrFormats: List<SabrFormat> = emptyList()
         private set
@@ -60,11 +64,51 @@ class SabrSessionManager(
     fun updateFormats(formats: List<SabrFormat>) {
         sabrFormats = formats
         formatsByItag.clear()
-        formats.forEach { formatsByItag[it.itag] = it }
+        formatsByKey.clear()
+        formats.forEach { format ->
+            formatsByItag[format.itag] = format
+            FormatKeyUtils.fromFormat(format)?.let { key ->
+                if (key.isNotEmpty()) {
+                    formatsByKey[key] = format
+                    if (key.endsWith(":")) {
+                        formatsByKey[key.removeSuffix(":")] = format
+                    }
+                }
+            }
+        }
+
+        Log.i(TAG, buildString {
+            append("formatsByItag=")
+            append(formatsByItag.entries.joinToString { entry ->
+                val format = entry.value
+                val parts = mutableListOf("itag=${entry.key}")
+                format.xtags?.takeIf { it.isNotEmpty() }?.let { parts += "xtags=$it" }
+                format.mimeType?.let { parts += "mime=$it" }
+                format.audioTrackId?.let { parts += "audioTrack=$it" }
+                format.contentLength?.let { parts += "len=$it" }
+                parts.joinToString(prefix = "[", postfix = "]", separator = ",")
+            })
+        })
     }
 
     fun recordMetadata(metadata: SabrRequestMetadata) {
         lastRequestMetadata = metadata
+    }
+
+    fun recordAbrRequestJson(json: String) {
+        lastAbrRequestJson = json
+    }
+
+    fun lastAbrRequestJson(): String? = lastAbrRequestJson
+
+    fun recordReloadPlaybackContextJson(json: String?) {
+        lastReloadPlaybackContextJson = json
+    }
+
+    fun lastReloadPlaybackContextJson(): String? = lastReloadPlaybackContextJson
+
+    fun lastReloadPlaybackContext(): ReloadPlaybackContext? {
+        return lastRequestMetadata?.streamInfo?.reloadPlaybackContext
     }
 
     fun updatePlaybackMetrics(
@@ -133,6 +177,8 @@ class SabrSessionManager(
         hash?.let { lastManifestHash = it }
         initSegmentStore.clear()
         estimatedPlaybackPositionsMs.clear()
+        lastAbrRequestJson = null
+        lastReloadPlaybackContextJson = null
 
         info.serverAbrStreamingUrl?.let { serverAbrStreamingUrl = it }
         info.ustreamerConfig?.let { config ->
@@ -166,6 +212,7 @@ class SabrSessionManager(
     }
 
     fun formatForKey(key: String): SabrFormat? {
+        formatsByKey[key]?.let { return it }
         val trimmed = key.substringBefore(":")
         val itag = trimmed.toIntOrNull() ?: return null
         return formatsByItag[itag]
@@ -176,10 +223,10 @@ class SabrSessionManager(
 
         info.playbackCookie?.let { lastPlaybackCookie = it }
 
-        info.formatInitMetadata.forEach { metadata ->
-            val formatId = metadata.formatId
+        info.formatInitMetadata.forEach { initMetadata ->
+            val formatId = initMetadata.formatId
             if (formatId.hasItag()) {
-                val key = FormatKeyUtils.fromFormatInitializationMetadata(metadata)
+                val key = FormatKeyUtils.fromFormatInitializationMetadata(initMetadata)
                 if (key.isEmpty()) return@forEach
                 val existing = initializedFormats[key]
                 if (existing == null) {
@@ -281,6 +328,7 @@ class SabrSessionManager(
         nextRequestPolicy = null
         sabrFormats = emptyList()
         formatsByItag.clear()
+        formatsByKey.clear()
         requestCounter.set(0)
         lastManifestHash = null
         initializedFormats.clear()
@@ -292,6 +340,8 @@ class SabrSessionManager(
         lastPlayerPositionSeconds = 0.0
         poToken = null
         clientInfo = null
+        lastAbrRequestJson = null
+        lastReloadPlaybackContextJson = null
     }
 
     fun recordMediaHeader(mediaHeader: MediaHeader) {
