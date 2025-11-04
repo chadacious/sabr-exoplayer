@@ -369,7 +369,7 @@ class SabrSessionManager(
         }
         entry.mediaHeaders.add(mediaHeader)
         if (entry.mediaHeaders.size > MAX_BUFFERED_MEDIA_HEADERS) {
-            entry.mediaHeaders.removeFirst()
+            entry.mediaHeaders.removeAt(0)
         }
 
         // When a segment finishes downloading we anticipate the next start time, matching the TS
