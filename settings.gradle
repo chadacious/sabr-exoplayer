@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "sabr-exoplayer"
 include(":sabr-exoplayer")
 include(":sample")
+include(':sabr-exoplayer-proto')

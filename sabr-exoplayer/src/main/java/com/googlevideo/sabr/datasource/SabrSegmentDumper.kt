@@ -1,5 +1,6 @@
 package com.googlevideo.sabr.datasource
 
+import android.annotation.SuppressLint
 import com.googlevideo.sabr.logging.SabrLogger
 import com.googlevideo.sabr.logging.d
 import com.googlevideo.sabr.logging.w
@@ -68,6 +69,7 @@ class SabrSegmentDumper(
         }
     }
 
+    @SuppressLint("UnsafeOptInUsageError")
     private fun buildDumpPath(
         request: SabrSegmentRequest,
         metadata: SabrRequestMetadata,

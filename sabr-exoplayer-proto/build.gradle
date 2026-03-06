@@ -1,0 +1,28 @@
+plugins {
+    id('java-library')
+    id('com.google.protobuf')
+}
+
+dependencies {
+    api("com.google.protobuf:protobuf-javalite:3.25.3")
+}
+
+sourceSets {
+    main {
+        proto {
+            // Point to where the protos live in sabr-exoplayer
+            srcDir("../sabr-exoplayer/src/main/proto")
+        }
+    }
+}
+
+protobuf {
+    protoc { artifact = "com.google.protobuf:protoc:3.25.3" }
+    generateProtoTasks {
+        all().configureEach {
+            builtins {
+                java { option "lite" }
+            }
+        }
+    }
+}
