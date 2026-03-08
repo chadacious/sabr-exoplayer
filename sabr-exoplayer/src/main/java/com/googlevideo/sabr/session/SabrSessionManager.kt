@@ -30,7 +30,7 @@ class SabrSessionManager(
 
     private val requestCounter = AtomicInteger(0)
     private var lastRequestMetadata: SabrRequestMetadata? = null
-    private val formatsByItag = mutableMapOf<Int, SabrFormat>()
+    private val formatsByItag = mutableMapOf<Int, MutableList<SabrFormat>>()
     private val formatsByKey = mutableMapOf<String, SabrFormat>()
     private var lastManifestHash: Int? = null
     private val initializedFormats = mutableMapOf<String, InitializedFormat>()
@@ -66,7 +66,7 @@ class SabrSessionManager(
         formatsByItag.clear()
         formatsByKey.clear()
         formats.forEach { format ->
-            formatsByItag[format.itag] = format
+            formatsByItag.getOrPut(format.itag) { mutableListOf() }.add(format)
             FormatKeyUtils.fromFormat(format)?.let { key ->
                 if (key.isNotEmpty()) {
                     formatsByKey[key] = format
@@ -79,9 +79,8 @@ class SabrSessionManager(
 
         Log.i(TAG, buildString {
             append("formatsByItag=")
-            append(formatsByItag.entries.joinToString { entry ->
-                val format = entry.value
-                val parts = mutableListOf("itag=${entry.key}")
+            append(formatsByItag.values.flatten().joinToString { format ->
+                val parts = mutableListOf("itag=${format.itag}")
                 format.xtags?.takeIf { it.isNotEmpty() }?.let { parts += "xtags=$it" }
                 format.mimeType?.let { parts += "mime=$it" }
                 format.audioTrackId?.let { parts += "audioTrack=$it" }
@@ -212,10 +211,7 @@ class SabrSessionManager(
     }
 
     fun formatForKey(key: String): SabrFormat? {
-        formatsByKey[key]?.let { return it }
-        val trimmed = key.substringBefore(":")
-        val itag = trimmed.toIntOrNull() ?: return null
-        return formatsByItag[itag]
+        return formatsByKey[key]
     }
 
     fun applyStreamInfo(metadata: SabrRequestMetadata) {
